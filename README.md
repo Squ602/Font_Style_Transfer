@@ -4,7 +4,7 @@
 
 <br><br>
 
-We provided colab notebook : [![Open In Colab](https://colab.research.google.com/drive/1vxDVb_JkNGklfDNToWdyNrRy4S4PtKTD?usp=sharing)]
+We provided colab notebook :[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1vxDVb_JkNGklfDNToWdyNrRy4S4PtKTD?usp=sharing).
 
 ### Environment
 Pytorch 1.10.1, Python 3.7
