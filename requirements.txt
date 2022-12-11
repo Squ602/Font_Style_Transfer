@@ -1,0 +1,9 @@
+svgpathtools==1.5.0
+svgwrite==1.4.2
+cssutils==2.4.2
+numba==0.55.2
+torch-tools==0.1.5
+visdom==0.1.8.9
+ftfy==6.1.1
+regex==2022.6.2
+tqdm==4.64.0
