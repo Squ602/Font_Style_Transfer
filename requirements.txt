@@ -7,3 +7,6 @@ visdom==0.1.8.9
 ftfy==6.1.1
 regex==2022.6.2
 tqdm==4.64.0
+numpy==1.21.6
+Pillow==9.1.1
+opencv-python==4.6.0.66

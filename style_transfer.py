@@ -345,7 +345,7 @@ class Config:
 
     # Change as you like
     prompt = "Starry Night by Vincent van gogh"
-    text = "ST"  # "如"
+    text = "ST"
 
     save_dir = "./result/"
     scale_factor = 1  # output image size is 512*scale_factor
