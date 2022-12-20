@@ -9,9 +9,9 @@ We provided colab notebook :[![Open In Colab](https://colab.research.google.com/
 ### Environment
 Pytorch 1.10.1, Python 3.7
 ```
-$ pip install -r requirements.txt
-
+$ git clone https://github.com/Squ602/Font_Style_Transfer.git
 $ cd Font_Style_Transfer
+$ pip install -r requirements.txt
 $ git clone https://github.com/BachiLi/diffvg
 $ cd diffvg
 $ git submodule update --init --recursive
