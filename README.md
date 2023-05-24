@@ -31,7 +31,7 @@ After the installation is complete, check it with the following command.
 ```
 $ cmake --version
 ```
-- Finally, install diffvg.
+Finally, install diffvg.
 ```
 $ git clone https://github.com/BachiLi/diffvg.git
 $ cd diffvg
@@ -40,8 +40,7 @@ $ python setup.py install
 ```
 
 #### Install CLIP
-```
-$ pip install ftfy regex tqdm                                      
+```                                   
 $ pip install git+https://github.com/openai/CLIP.git --no-deps
 ```
 
