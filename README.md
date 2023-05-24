@@ -6,18 +6,42 @@
 
 We provided colab notebook :[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1vxDVb_JkNGklfDNToWdyNrRy4S4PtKTD?usp=sharing).
 
-### Environment
-Pytorch 1.10.1, Python 3.7
+### Environment 
 ```
-$ git clone https://github.com/Squ602/Font_Style_Transfer.git
-$ cd Font_Style_Transfer
+$ conda create -n font python=3.9
+$ conda activate font
+$ conda install pytorch==1.11.0 torchvision==0.12.0 torchaudio==0.11.0 cudatoolkit=11.3 -c pytorch
+
+$ git clone https://github.com/uecyanailab/Zero-shot-font.git
+$ cd Zero-shot-font
 $ pip install -r requirements.txt
-$ git clone https://github.com/BachiLi/diffvg
+$ cd ..
+```
+
+#### Install diffvg
+The cmake command is required to install diffvg. If you do not have it, follow the steps below to install it.
+```
+$ wget https://github.com/Kitware/CMake/releases/download/v3.23.2/cmake-3.23.2.tar.gz
+$ cd cmake-3.23.3
+$ ./configure --prefix=$HOME
+$ make
+$ make install
+```
+After the installation is complete, check it with the following command.
+```
+$ cmake --version
+```
+- Finally, install diffvg.
+```
+$ git clone https://github.com/BachiLi/diffvg.git
 $ cd diffvg
 $ git submodule update --init --recursive
-$ python setup.py install         
+$ python setup.py install 
+```
 
-$ cd ..
+#### Install CLIP
+```
+$ pip install ftfy regex tqdm                                      
 $ pip install git+https://github.com/openai/CLIP.git --no-deps
 ```
 
@@ -25,5 +49,6 @@ $ pip install git+https://github.com/openai/CLIP.git --no-deps
 Plase save the font file in `./font-file` directory. (For example, font files can be downloaded [here](https://fonts.google.com/).)
 Then, run the command
 ```
-python style_transfer.py --text ST --prompt "Starry Night by Vincent van gogh"
+$ cd Zero-shot-font
+$ python style_transfer.py --text ST --prompt "Starry Night by Vincent van gogh"
 ```
