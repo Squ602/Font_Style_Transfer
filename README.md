@@ -12,8 +12,8 @@ $ conda create -n font python=3.9
 $ conda activate font
 $ conda install pytorch==1.11.0 torchvision==0.12.0 torchaudio==0.11.0 cudatoolkit=11.3 -c pytorch
 
-$ git clone https://github.com/uecyanailab/Zero-shot-font.git
-$ cd Zero-shot-font
+$ git clone https://github.com/Squ602/Font_Style_Transfer.git
+$ cd Font_Style_Transfer
 $ pip install -r requirements.txt
 $ cd ..
 ```
