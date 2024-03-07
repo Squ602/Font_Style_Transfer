@@ -1,7 +1,7 @@
 import argparse
 import os
-import random
 import warnings
+from functools import partial
 
 import clip
 import cv2
@@ -9,51 +9,54 @@ import numpy as np
 import pydiffvg
 import torch
 import torchvision.transforms as transforms
-import utils
 from PIL import Image
-from templates import imagenet_templates, text_templates
-from tqdm import tqdm
+from templates import image_templates, text_templates
+from tqdm import tqdm as std_tqdm
+
+tqdm = partial(std_tqdm, dynamic_ncols=True)
+from utils import (
+    calc_dist,
+    center_crop,
+    clip_normalize,
+    compose_text_with_templates,
+    get_image_prior_losses,
+    init_curves,
+    init_point,
+    make_dist,
+    make_text_img,
+    render_drawing,
+    render_scaled,
+    seed_everything,
+)
 
 warnings.simplefilter("ignore")
 
-os.environ["FFMPEG_BINARY"] = "ffmpeg"
-
-random.seed(1234)
-torch.manual_seed(1234)
-
 device = torch.device("cuda")
-print(f"device : {device}\n")
+print(f"device : {device} ({torch.cuda.get_device_name(device)})\n")
 
 pydiffvg.set_print_timing(False)
 # Use GPU if available
 pydiffvg.set_use_gpu(torch.cuda.is_available())
 pydiffvg.set_device(device)
 
-FONT_PATH = "./font-file/NotoSansJP-Regular.otf"
-
 # Load the model
 clip_model, preprocess = clip.load("ViT-B/32", device, jit=False)
 
 
-def compose_text_with_templates(text: str, templates=imagenet_templates) -> list:
-    return [template.format(text) for template in templates]
-
-
 def font_style_transfer(opt):
-
     # ##### Make text image #######
     if opt.path is not None:
         text_img = Image.open(opt.path).convert("RGB")
         text_img = text_img.resize((512, 512))
     else:
-        text_img = utils.make_text_img(opt.text, FONT_PATH)
+        text_img = make_text_img(opt.text, opt.font_path)
 
     if opt.debug:
-        name_dir = f"{opt.save_dir}process/{opt.text}_{opt.prompt}/"
+        name_dir = f"{opt.save_dir}process/{opt.prompt.replace(' ', '_')}/"
         os.makedirs(name_dir, exist_ok=True)
 
-    init_points, index = utils.init_point(text_img, opt.num_paths)
-    dist = utils.make_dist(text_img)
+    init_points, index = init_point(text_img, opt.num_paths)
+    dist = make_dist(text_img)
 
     gamma = 1.0
     content_image = np.array(text_img)
@@ -78,7 +81,7 @@ def font_style_transfer(opt):
 
     with torch.no_grad():
         # Encode prompt
-        template_text = compose_text_with_templates(opt.prompt, imagenet_templates)
+        template_text = compose_text_with_templates(opt.prompt, image_templates)
         tokens = clip.tokenize(template_text).to(pydiffvg.get_device())
         text_features = clip_model.encode_text(tokens).detach()
         text_features = text_features.mean(axis=0, keepdim=True)
@@ -92,15 +95,21 @@ def font_style_transfer(opt):
         text_source /= text_source.norm(dim=-1, keepdim=True)
 
         # Encode content image
-        source_features = clip_model.encode_image(utils.clip_normalize(content_image, pydiffvg.get_device()))
+        source_features = clip_model.encode_image(
+            clip_normalize(content_image, pydiffvg.get_device())
+        )
         source_features /= source_features.clone().norm(dim=-1, keepdim=True)
 
     # caluculate distance
-    target_dist = utils.calc_dist(content_image, dist)
+    target_dist = calc_dist(content_image, dist)
 
     # Initialize Curves
-    shapes, shape_groups = utils.init_curves(opt, init_points, index, canvas_width, canvas_height)
-    scene_args = pydiffvg.RenderFunction.serialize_scene(canvas_width, canvas_height, shapes, shape_groups)
+    shapes, shape_groups = init_curves(
+        opt, init_points, index, canvas_width, canvas_height
+    )
+    scene_args = pydiffvg.RenderFunction.serialize_scene(
+        canvas_width, canvas_height, shapes, shape_groups
+    )
     render = pydiffvg.RenderFunction.apply
     img = render(
         canvas_width,  # width
@@ -149,10 +158,12 @@ def font_style_transfer(opt):
         color_optim.zero_grad()
 
         # ################ render the image ################
-        img = utils.render_drawing(shapes, shape_groups, canvas_width, canvas_height, i, debug=opt.debug)
+        img = render_drawing(
+            shapes, shape_groups, canvas_width, canvas_height, opt.seed, debug=opt.debug
+        )
 
         # ################ shape loss ################
-        img_dist = utils.calc_dist(img, dist)
+        img_dist = calc_dist(img, dist)
 
         shape_loss = (img_dist - target_dist).pow(2).mean()
         # ################ augment ################
@@ -166,7 +177,7 @@ def font_style_transfer(opt):
 
         # ################ loss patch  ################
         # Encode augmented image
-        batch_features = clip_model.encode_image(utils.clip_normalize(im_batch, device))
+        batch_features = clip_model.encode_image(clip_normalize(im_batch, device))
         batch_features /= batch_features.clone().norm(dim=-1, keepdim=True)
 
         # calculate　ΔI
@@ -185,20 +196,27 @@ def font_style_transfer(opt):
 
         # ################ loss glob #####################
         # Encode redered image
-        glob_features = clip_model.encode_image(utils.clip_normalize(img, device))
+        glob_features = clip_model.encode_image(clip_normalize(img, device))
         glob_features /= glob_features.clone().norm(dim=-1, keepdim=True)
 
         # alculate　ΔI
         glob_direction = glob_features - source_features
         glob_direction /= glob_direction.clone().norm(dim=-1, keepdim=True)
 
-        loss_glob = (1 - torch.cosine_similarity(glob_direction, text_direction, dim=1)).mean()
+        loss_glob = (
+            1 - torch.cosine_similarity(glob_direction, text_direction, dim=1)
+        ).mean()
 
         # ################ reg_tv ################
-        reg_tv = opt.lambda_tv * utils.get_image_prior_losses(img)
+        reg_tv = opt.lambda_tv * get_image_prior_losses(img)
 
         # ################ total loss ################
-        total_loss = opt.lambda_patch * loss_patch + opt.lambda_dir * loss_glob + reg_tv + opt.lambda_shape * shape_loss
+        total_loss = (
+            opt.lambda_patch * loss_patch
+            + opt.lambda_dir * loss_glob
+            + reg_tv
+            + opt.lambda_shape * shape_loss
+        )
 
         # ################ Backpropagate the gradients ################
         total_loss.backward()
@@ -225,19 +243,19 @@ def font_style_transfer(opt):
             img = img * 255
             img = img.astype(np.uint8)
             cv2.imwrite(
-                os.path.join(name_dir, f"{i}.png"),
+                os.path.join(name_dir, f"{(i):03}" + ".png"),
                 cv2.cvtColor(img, cv2.COLOR_RGB2BGR),
             )
 
         t.set_postfix({"render_loss": total_loss.item()})
 
     return (
-        utils.render_scaled(
+        render_scaled(
             shapes,
             shape_groups,
             canvas_width,
             canvas_height,
-            t=opt.num_iter,
+            opt.seed,
             scale_factor=opt.scale_factor,
         )
         .detach()
@@ -246,7 +264,15 @@ def font_style_transfer(opt):
     )
 
 
-def gen_image(opt):
+def gen_image(opt) -> np.ndarray:
+    """generate stylized image
+
+    Args:
+        opt : config
+
+    Returns:
+        np.ndarray: stylized image
+    """
     print("prompt:", opt.prompt)
     print("text:", opt.text)
     img = font_style_transfer(opt)
@@ -263,7 +289,7 @@ def gen_image(opt):
 
     os.makedirs(opt.save_dir, exist_ok=True)
     cv2.imwrite(
-        os.path.join(opt.save_dir, f"{name}_{opt.prompt}_.png"),
+        os.path.join(opt.save_dir, f"{name}_{opt.prompt.replace(' ', '_')}.png"),
         cv2.cvtColor(img, cv2.COLOR_RGB2BGR),
     )
     print(f"finished {opt.prompt}\n")
@@ -278,80 +304,76 @@ def main(opt):
         for text in texts:
             opt.text = text
             img = gen_image(opt)
-            img = utils.center_crop(img, 420, 420)
+            img = center_crop(img, 420, 420)
             images.append(img)
 
         img_h = cv2.hconcat(images)
-        cv2.imwrite(os.path.join(opt.save_dir, f"{orig_text}.png"), cv2.cvtColor(img_h, cv2.COLOR_RGB2BGR))
+        cv2.imwrite(
+            os.path.join(opt.save_dir, f"{orig_text}.png"),
+            cv2.cvtColor(img_h, cv2.COLOR_RGB2BGR),
+        )
 
     else:
         _ = gen_image(opt)
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--text", type=str, default="A", help="text")
-parser.add_argument("--prompt", type=str, default="Starry Night by Vinvent van gogh", help="prompt")
-parser.add_argument("--save_dir", type=str, default="./result/", help="save directory")
-
-parser.add_argument("--thresh", type=float, default=0.7)
-parser.add_argument("--lambda_tv", type=float, default=2e-3)
-parser.add_argument("--lambda_patch", type=float, default=9000)
-parser.add_argument("--lambda_dir", type=float, default=500)
-parser.add_argument("--lambda_shape", type=float, default=1500)
-
-parser.add_argument(
-    "--color",
-    nargs="*",
-    default=None,
-    type=float,
-    help="initial color of beizer curves [R, G, B](value range 0~1). If not specified, None.",
-)
-parser.add_argument("--source", type=str, default="a photo")
-
-parser.add_argument("--num_iter", type=int, default=200, help="Number of iterations")
-parser.add_argument("--num_paths", type=int, default=512, help="Number of bezeir curves")
-parser.add_argument("--max_width", type=float, default=2.0, help="max width of curves")
-parser.add_argument("--crop_size", type=int, default=160, help="cropped image size")
-parser.add_argument("--num_augs", type=int, default=64, help="number of patches")
-
-parser.add_argument("--blob", type=bool, default=True, help="use closed bezier curves")
-parser.add_argument("--debug", type=bool, default=False, help="save process images")
-
-parser.add_argument("--scale_factor", type=int, default=1, help="output image size is 512*scale_factor")
-parser.add_argument("--path", type=str, default=None, help="input image path")
-
-opt = parser.parse_args()
-
-
-class Config:
-    # parameters
-    thresh = 0.7  # default 0.7
-    lambda_tv = 2e-3  # default 2e-3
-    lambda_patch = 9000.0  # default 9000
-    lambda_dir = 500  # default 500
-    lambda_shape = 1500  # lambda_shape of shape loss. default 1500
-
-    color = None  # initial color of beizer curves [R, G, B]. If not specified, None.
-    source = "a photo"  # default "a photo"
-
-    num_iter = 200  # default 200
-    num_paths = 512  # number of bezier curves. default 512
-    max_width = 2.0  # max width of bezier curves. default 2.0
-    crop_size = 160  # default 160
-    num_augs = 64  # number of augment. default 64
-
-    blob = True  # use closed bezier curves
-    debug = False  # save process image
-
-    # Change as you like
-    prompt = "Starry Night by Vincent van gogh"
-    text = "ST"
-
-    save_dir = "./result/"
-    scale_factor = 1  # output image size is 512*scale_factor
-    path = None  # input image path
-
-
 if __name__ == "__main__":
-    # opt = Config()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--text", type=str, default="令", help="text")
+    parser.add_argument(
+        "--prompt", type=str, default="Starry Night by Vinvent van gogh", help="prompt"
+    )
+    parser.add_argument(
+        "--font_path",
+        type=str,
+        default="./font-file/NotoSansJP-Regular.otf",
+        help="font path",
+    )
+    parser.add_argument(
+        "--save_dir", type=str, default="./result/", help="save directory"
+    )
+
+    parser.add_argument("--thresh", type=float, default=0.7)
+    parser.add_argument("--lambda_tv", type=float, default=2e-3)
+    parser.add_argument("--lambda_patch", type=float, default=9000)
+    parser.add_argument("--lambda_dir", type=float, default=500)
+    parser.add_argument("--lambda_shape", type=float, default=1500)
+
+    parser.add_argument(
+        "--color",
+        nargs="*",
+        default=None,
+        type=float,
+        help="initial color of beizer curves [R, G, B](value range 0~1). If not specified, None.",
+    )
+    parser.add_argument("--source", type=str, default="a photo")
+
+    parser.add_argument(
+        "--num_iter", type=int, default=200, help="Number of iterations"
+    )
+    parser.add_argument(
+        "--num_paths", type=int, default=512, help="Number of bezeir curves"
+    )
+    parser.add_argument(
+        "--max_width", type=float, default=2.0, help="max width of curves"
+    )
+    parser.add_argument("--crop_size", type=int, default=160, help="cropped image size")
+    parser.add_argument("--num_augs", type=int, default=64, help="number of patches")
+
+    parser.add_argument(
+        "--blob", type=bool, default=True, help="use closed bezier curves"
+    )
+    parser.add_argument("--debug", type=bool, default=False, help="save process images")
+
+    parser.add_argument(
+        "--scale_factor",
+        type=int,
+        default=1,
+        help="output image size is 512*scale_factor",
+    )
+    parser.add_argument("--path", type=str, default=None, help="input image path")
+    parser.add_argument("--seed", type=int, default=42, help="seed")
+
+    opt = parser.parse_args()
+    seed_everything(opt.seed)
     main(opt)
