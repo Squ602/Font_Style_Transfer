@@ -1,6 +1,6 @@
 # Zero-shot Font Style Transfer with a Differentiable Renderer
 
-<img src="images/result.png">
+<img src="images/result_font.png">
 
 <br><br>
 
