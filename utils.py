@@ -19,7 +19,7 @@ def render_drawing(
     canvas_height: int,
     seed: int,
     debug: bool = False,
-):
+) -> torch.Tensor:
     scene_args = pydiffvg.RenderFunction.serialize_scene(
         canvas_width, canvas_height, shapes, shape_groups
     )
@@ -44,7 +44,7 @@ def render_scaled(
     original_width: int,
     seed: int,
     scale_factor: int = 1,
-):
+) -> torch.Tensor:
     with torch.no_grad():
         shapes_resized = copy.deepcopy(shapes)
         for i in range(len(shapes)):
