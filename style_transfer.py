@@ -12,14 +12,11 @@ import torchvision.transforms as transforms
 from PIL import Image
 from templates import image_templates, text_templates
 from tqdm import tqdm as std_tqdm
-
-tqdm = partial(std_tqdm, dynamic_ncols=True)
 from utils import (
     calc_dist,
     center_crop,
     clip_normalize,
     compose_text_with_templates,
-    get_image_prior_losses,
     init_curves,
     init_point,
     make_dist,
@@ -29,6 +26,7 @@ from utils import (
     seed_everything,
 )
 
+tqdm = partial(std_tqdm, dynamic_ncols=True)
 warnings.simplefilter("ignore")
 
 device = torch.device("cuda")
@@ -51,8 +49,8 @@ def font_style_transfer(opt):
     else:
         text_img = make_text_img(opt.text, opt.font_path)
 
-    if opt.debug:
-        name_dir = f"{opt.save_dir}process/{opt.prompt.replace(' ', '_')}/"
+    if opt.process:
+        name_dir = f"{opt.save_dir}process/{opt.prompt.replace(' ', '_')}_{opt.text}/"
         os.makedirs(name_dir, exist_ok=True)
 
     init_points, index = init_point(text_img, opt.num_paths)
@@ -165,7 +163,7 @@ def font_style_transfer(opt):
         # ################ shape loss ################
         img_dist = calc_dist(img, dist)
 
-        shape_loss = (img_dist - target_dist).pow(2).mean()
+        loss_shape = (img_dist - target_dist).pow(2).mean()
         # ################ augment ################
         img_proc = []
         for _ in range(opt.num_augs):
@@ -194,29 +192,8 @@ def font_style_transfer(opt):
         loss_temp[loss_temp < opt.thresh] = 0
         loss_patch += loss_temp.mean()
 
-        # ################ loss glob #####################
-        # Encode redered image
-        glob_features = clip_model.encode_image(clip_normalize(img, device))
-        glob_features /= glob_features.clone().norm(dim=-1, keepdim=True)
-
-        # alculate　ΔI
-        glob_direction = glob_features - source_features
-        glob_direction /= glob_direction.clone().norm(dim=-1, keepdim=True)
-
-        loss_glob = (
-            1 - torch.cosine_similarity(glob_direction, text_direction, dim=1)
-        ).mean()
-
-        # ################ reg_tv ################
-        reg_tv = opt.lambda_tv * get_image_prior_losses(img)
-
         # ################ total loss ################
-        total_loss = (
-            opt.lambda_patch * loss_patch
-            + opt.lambda_dir * loss_glob
-            + reg_tv
-            + opt.lambda_shape * shape_loss
-        )
+        total_loss = opt.lambda_patch * loss_patch + opt.lambda_shape * loss_shape
 
         # ################ Backpropagate the gradients ################
         total_loss.backward()
@@ -237,7 +214,7 @@ def font_style_transfer(opt):
             for group in shape_groups:
                 group.stroke_color.data.clamp_(0.0, 1.0)
 
-        if opt.debug:
+        if opt.process:
             img = img.detach().cpu().numpy()[0]
             img = img.transpose(1, 2, 0)
             img = img * 255
@@ -319,7 +296,7 @@ def main(opt):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--text", type=str, default="令", help="text")
+    parser.add_argument("--text", type=str, default="C", help="text")
     parser.add_argument(
         "--prompt", type=str, default="Starry Night by Vinvent van gogh", help="prompt"
     )
@@ -334,9 +311,7 @@ if __name__ == "__main__":
     )
 
     parser.add_argument("--thresh", type=float, default=0.7)
-    parser.add_argument("--lambda_tv", type=float, default=2e-3)
     parser.add_argument("--lambda_patch", type=float, default=9000)
-    parser.add_argument("--lambda_dir", type=float, default=500)
     parser.add_argument("--lambda_shape", type=float, default=1500)
 
     parser.add_argument(
@@ -344,7 +319,7 @@ if __name__ == "__main__":
         nargs="*",
         default=None,
         type=float,
-        help="initial color of beizer curves [R, G, B](value range 0~1). If not specified, None.",
+        help="Initial color of beizer curves [R, G, B](value range 0~1). If not specified, None.",
     )
     parser.add_argument("--source", type=str, default="a photo")
 
@@ -355,25 +330,31 @@ if __name__ == "__main__":
         "--num_paths", type=int, default=512, help="Number of bezeir curves"
     )
     parser.add_argument(
-        "--max_width", type=float, default=2.0, help="max width of curves"
+        "--max_width", type=float, default=2.0, help="Max width of curves"
     )
-    parser.add_argument("--crop_size", type=int, default=160, help="cropped image size")
-    parser.add_argument("--num_augs", type=int, default=64, help="number of patches")
+    parser.add_argument("--crop_size", type=int, default=160, help="Cropped image size")
+    parser.add_argument("--num_augs", type=int, default=64, help="Number of patches")
 
     parser.add_argument(
-        "--blob", type=bool, default=True, help="use closed bezier curves"
+        "--blob", type=bool, default=True, help="Use closed bezier curves"
     )
-    parser.add_argument("--debug", type=bool, default=False, help="save process images")
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Save process image with file of same name",
+    )
+    parser.add_argument("--process", action="store_true", help="Save process images")
 
     parser.add_argument(
         "--scale_factor",
         type=int,
         default=1,
-        help="output image size is 512*scale_factor",
+        help="Output image size is 512*scale_factor",
     )
-    parser.add_argument("--path", type=str, default=None, help="input image path")
+    parser.add_argument("--path", type=str, default=None, help="Input image path")
     parser.add_argument("--seed", type=int, default=42, help="seed")
 
     opt = parser.parse_args()
     seed_everything(opt.seed)
+
     main(opt)

@@ -2,7 +2,7 @@
 - This method revisits the approach from our previous research outlined below and includes additional experiments.
 - [Zero-shot Font Style Transfer with a Differentiable Renderer](https://dl.acm.org/doi/10.1145/3551626.3564961)
 
-<img src="images/result_font.png">
+<img src="images/result.png">
 
 <br><br>
 
